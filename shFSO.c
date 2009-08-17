@@ -1,6 +1,12 @@
-/***  Shell basico
-      Fundamento de Sistemas Operativos
-***/
+/* -*- mode: C -*- Time-stamp: "2009-08-17 20:08:01 holzplatten"
+   *
+   *       File:         shFSO.c
+   *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
+   *       Date:         Mon Aug 17 19:57:44 2009
+   *
+   *       Shell para la asignatura Fundamentos de Sistemas Operativos
+   *
+   */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +18,35 @@
 
 #define MAXLINEA 1024  /* tamaño maximo linea comandos */
 #define MAXARG 256     /* numero maximo argumentos linea comm. */
-#define PROMPT "FSO"   /* prompt del shell */
+#define SET 1
+#define CLEAR 0
+
+
+
+
+void show_prompt();
+
+
+
+
+/*-
+  *      Routine:      show_prompt
+  *
+  *      Purpose:
+  *              Muestra un prompt con el CWD
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void show_prompt()
+{
+  char *pwd = (char *) get_current_dir_name();
+
+  printf("%s> ", pwd);
+  free(pwd);
+}
 
 
 /*============================================================*/    
@@ -129,7 +163,7 @@ main()
   while(!fin)  
     {
       /* escribe el prompt */
-      printf("%s> ",PROMPT);
+      show_prompt();
       /* lee la linea de comandos*/
       nueva_linea(linea,MAXLINEA);
       /* analiza linea de comandos y la separa en argumentos */  
