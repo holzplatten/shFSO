@@ -1,10 +1,10 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-17 20:08:01 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2009-08-19 14:23:24 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
    *       Date:         Mon Aug 17 19:57:44 2009
    *
-   *       Shell para la asignatura Fundamentos de Sistemas Operativos
+   *       Shell para la asignatura Fundamentos de Sistemas Operativos.
    *
    */
 
@@ -16,6 +16,8 @@
 #include <string.h>
 #include <signal.h>
 
+#include <termios.h>
+
 #define MAXLINEA 1024  /* tamaño maximo linea comandos */
 #define MAXARG 256     /* numero maximo argumentos linea comm. */
 #define SET 1
@@ -24,10 +26,210 @@
 
 
 
+/*
+   Definiciones de tipos.
+ */
+typedef struct _node_t {
+  int pid;
+  char *name;
+  int status;
+  int stopped;
+  int fg;
+  struct termios term_mode;
+
+  struct _node_t *next;
+} node_t;
+
+typedef struct _list_t {
+  node_t * beg;
+  node_t * end;
+} list_t;
+
+
+
+
+
+/*
+   Prototipos de funciones de manejo de listas.
+ */
+
+void list_init(list_t *);
+void list_insert(list_t *, node_t *);
+int list_remove(list_t *, node_t *);
+int list_remove_pid(list_t * , int);
+void list_print();
+
+
+
+
+/*
+   Variables globales del shell.
+ */
+list_t proc_list;
+int shell_term;
+int shell_pid;
+
+sigset_t block_sigchld;
+
+struct termios shell_tmode;
+
+
+
+/*
+   Prototipos de función relacionados directamente con el shell.
+ */
+
 void show_prompt();
+void init_shell();
+void set_signals(void (*) ());
+void handler_sigchld();
+void handler_sigint();
+
+void proc_info(node_t *, int status);
+void proc_update(node_t *, int status);
 
 
 
+
+/*-
+  *      Routine:      proc_info
+  *
+  *      Purpose:
+  *              Muestra información sobre el proceso indicado,
+  *              de acuerdo al nuevo status.
+  *      Conditions:
+  *              El proceso debe existir en la lista de procesos.
+  *      Returns:
+  *              none
+  *
+  */
+void proc_info(node_t *p, int status)
+{
+  printf("------------ proc_info\n");
+}
+
+/*-
+  *      Routine:      proc_update
+  *
+  *      Purpose:
+  *              Actualiza el proceso en la lista de procesos
+  *              y lo elimina si es necesario.
+  *      Conditions:
+  *              El proceso debe existir en la lista de procesos.
+  *      Returns:
+  *              none
+  *
+  */
+void proc_update(node_t *p, int status)
+{
+  printf("------------ proc_update\n");
+}
+
+/*-
+  *      Routine:      set_signals
+  *
+  *      Purpose:
+  *              Establece los manejadores delas señales empleadas
+  *              por el shell, excepto SIGINT, que le asigna el
+  *              manejador handler_sigint, definido en este mismo
+  *              archivo.
+  *              
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void set_signals(void (*f)())
+{
+  signal(SIGINT, handler_sigint);
+  signal(SIGQUIT, f);
+  signal(SIGTSTP, f);
+  signal(SIGTTIN, f);
+  signal(SIGTTOU, f);
+}
+
+/*-
+  *      Routine:      handler_sigint
+  *
+  *      Purpose:
+  *              Manejador de la señal SIGINT.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void handler_sigint()
+{
+  printf("Para salir del shell use el comando \"logout\"\n");
+}
+
+/*-
+  *      Routine:      handler_sigchld
+  *
+  *      Purpose:
+  *              Manejador de la señal SIGCHLD.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void handler_sigchld()
+{
+  int pid, status;
+  node_t *aux;
+
+  aux = proc_list.beg;
+  while (aux)
+    {
+      if (!aux->fg)
+	{
+	  pid = waitpid(aux->pid, &status, WUNTRACED|WNOHANG);
+	  if (pid == aux->pid)
+	    {
+	      proc_info(aux, status);
+	      proc_update(aux, status);
+	    }
+	}
+    }
+  
+}
+
+/*-
+  *      Routine:      init_shell
+  *
+  *      Purpose:
+  *              Inicializa el shell.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void init_shell()
+{
+  shell_term = STDIN_FILENO;
+
+  set_signals(SIG_IGN);
+  signal(SIGCHLD, handler_sigchld);
+
+  shell_pid = getpid();
+  if (setpgid (shell_pid, shell_pid) < 0)
+    {
+      perror ("setpgid (Shell)");
+      exit(1);
+    }
+
+  tcsetpgrp(shell_term, shell_pid);
+  tcgetattr(shell_term, &shell_tmode);
+
+  list_init(&proc_list);
+
+  sigemptyset(&block_sigchld);
+  sigaddset(&block_sigchld, SIGCHLD);
+}
 
 /*-
   *      Routine:      show_prompt
@@ -159,6 +361,8 @@ main()
   int fin=0;
   char linea[MAXLINEA];
 
+  init_shell();
+
   help(); /* muestra aviso y ayuda */
   while(!fin)  
     {
@@ -176,3 +380,131 @@ main()
   printf("Bye\n");
   exit(0);
 } 
+
+
+
+
+/*
+   Definición de funciones de manejo de listas.
+ */
+
+/*-
+  *      Routine:      list_init
+  *
+  *      Purpose:
+  *              Inicializa una lista.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void list_init(list_t *lst)
+{
+  lst->beg = lst->end = NULL;
+}
+
+/*-
+  *      Routine:      list_insert
+  *
+  *      Purpose:
+  *              Inserta un nuevo nodo al final de la lista.
+  *      Conditions:
+  *              La lista debe estar inicializada.
+  *      Returns:
+  *              none
+  *
+  */
+void list_insert(list_t * lst, node_t * nod)
+{
+  nod->next = NULL;
+
+  if (lst->end)
+    {
+      lst->end->next = nod;
+      lst->end = nod;
+    }
+  else
+    {
+      lst->beg = nod;
+      lst->end = nod;
+    }
+}
+
+/*-
+  *      Routine:      list_remove
+  *
+  *      Purpose:
+  *              Elimina el nodo indicado de la lista.
+  *      Conditions:
+  *              La lista debe estar inicializada
+  *      Returns:
+  *              1 si no se encontró el elemento en la lista.
+  *              0 e.o.c.
+  *
+  */
+int list_remove(list_t * lst, node_t * nod)
+{
+  node_t *ant = NULL, *aux = lst->beg;
+
+  while (aux != NULL && aux != nod)
+    {
+      ant = aux;
+      aux = aux->next;
+    }
+
+  if (aux == NULL)
+    return 1;
+
+  if (ant)
+    ant->next = aux->next;
+  else
+    lst->beg = aux->next;
+
+  if (lst->end == aux)
+    lst->end = ant;
+
+  free(nod->name);
+  free(nod);
+
+  return 0;
+}
+
+/*-
+  *      Routine:      list_remove_pid
+  *
+  *      Purpose:
+  *              Elimina el nodo cuyo pid sea el indicado.
+  *      Conditions:
+  *              La lista debe estar inicializada
+  *      Returns:
+  *              1 si no se encontró el elemento en la lista.
+  *              0 e.o.c.
+  *
+  */
+int list_remove_pid(list_t * lst, int pid)
+{
+  node_t *ant = NULL, *aux = lst->beg;
+
+  while (aux != NULL && aux->pid != pid)
+    {
+      ant = aux;
+      aux = aux->next;
+    }
+
+  if (aux == NULL)
+    return 1;
+
+  if (ant)
+    ant->next = aux->next;
+  else
+    lst->beg = aux->next;
+
+  if (lst->end == aux)
+    lst->end = ant;
+
+  free(aux->name);
+  free(aux);
+
+  return 0;
+}
