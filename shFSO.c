@@ -1,4 +1,4 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-19 14:23:24 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2009-08-19 14:37:16 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
@@ -87,6 +87,8 @@ void handler_sigint();
 
 void proc_info(node_t *, int status);
 void proc_update(node_t *, int status);
+
+int cmd_cd(int argc, char *argv[]);
 
 
 
@@ -336,8 +338,14 @@ int ejecuta_comando(char ** argumentos, int narg)
   if (narg==0) return 0;
 
   /* comandos internos */
-  if(strcmp(argumentos[0],"logout")==0) return 1;
-  if(strcmp(argumentos[0],"help")==0) {help(); return 0;}
+  if (strcmp(argumentos[0],"logout")==0) return 1;
+  if (strcmp(argumentos[0],"help")==0) {help(); return 0;}
+
+  if (strcmp(argumentos[0],"cd") == 0)
+    {
+      cmd_cd(narg, argumentos);
+      return 0;
+    }
   
   /* ejecuta comando externo */
   if ((pid=fork())==0) /* lanza la ejecucion de un proceso hijo */
@@ -381,6 +389,48 @@ main()
   exit(0);
 } 
 
+/*-
+  *      Routine:      cmd_cd
+  *
+  *      Purpose:
+  *              Implementación del cambio de directorio.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              >0 si error.
+  *              0 e.o.c.
+  *
+  */
+int cmd_cd(int argc, char *argv[])
+{
+  char *pwd;
+
+  if (argc > 2)
+    return 1;
+
+  if (argc == 1)
+    {
+      pwd = (char *) get_current_dir_name();
+
+      printf(" Directorio actual = %s\n", pwd);
+    }
+  else
+    {
+      if (chdir(argv[1]))
+	{
+	  perror("cd");
+	  return 2;
+	}
+
+      pwd = (char *) get_current_dir_name();
+
+      setenv("PWD", pwd, 1);
+      printf(" Directorio actual = %s\n", pwd);
+
+    }
+
+  free(pwd);
+}
 
 
 
