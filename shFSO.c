@@ -1,4 +1,4 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-19 14:37:16 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2009-08-20 12:57:46 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
@@ -333,9 +333,31 @@ int ejecuta_comando(char ** argumentos, int narg)
 {
   int i, pid;
   int status;
+  int separador;
   
   /* si esta vacio */
   if (narg==0) return 0;
+
+  separador=0;
+  for (i=0; i<narg; i++)
+    {
+      if (!strcmp(argumentos[i], ";"))
+	{
+	  separador = i;
+	  break;
+	}
+    }
+
+  /* Caso genérico: secuencia de comandos de al menos dos comandos. */
+  if (separador)
+    {
+      free(argumentos[separador]);
+      argumentos[separador] = NULL;
+      ejecuta_comando(argumentos, separador++);
+      return ejecuta_comando(&argumentos[separador], narg-separador);
+    }
+
+  /* Caso base: un sólo comando. */
 
   /* comandos internos */
   if (strcmp(argumentos[0],"logout")==0) return 1;
