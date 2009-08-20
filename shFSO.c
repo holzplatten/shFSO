@@ -1,4 +1,4 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-20 18:08:22 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2009-08-20 19:58:59 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
@@ -59,7 +59,7 @@ int list_remove(list_t *, node_t *);
 int list_remove_pid(list_t * , int);
 void list_print();
 int list_index(list_t *, node_t *);
-node_t list_elem(list_t *, int);
+node_t * list_elem(list_t *, int);
 int list_length(list_t *);
 
 
@@ -92,6 +92,9 @@ void proc_update(node_t *, int status);
 
 int cmd_cd(int argc, char *argv[]);
 void cmd_jobs(int argc, char *argv[]);
+void cmd_fg(int argc, char *argv[]);
+
+int is_nat(char *);
 
 
 
@@ -115,14 +118,9 @@ void proc_info(node_t *p, int status)
       printf(" [%d] %s (pid=%d) : PARADO\n",
 	     list_index(&proc_list, p), p->name, p->pid);
     }
-  else if (WIFEXITED(status))
+  else //if (WIFEXITED(status))
     {
       printf(" [%d] %s (pid=%d) : TERMINADO\n",
-	     list_index(&proc_list, p), p->name, p->pid);
-    }
-  else
-    {
-      printf(" [%d] %s (pid=%d) : EN EJECUCION\n",
 	     list_index(&proc_list, p), p->name, p->pid);
     }
 }
@@ -145,14 +143,9 @@ void proc_update(node_t *p, int status)
     {
       p->stopped = SET;
     }
-  else if (WIFEXITED(status))
+  else //if (WIFEXITED(status))
     {
       list_remove(&proc_list, p);
-    }
-  else
-    {
-      p->fg = CLEAR;
-      p->stopped = CLEAR;
     }
 }
 
@@ -372,10 +365,6 @@ int ejecuta_comando(char ** argumentos, int narg)
   /* si esta vacio */
   if (narg==0) return 0;
 
-  for (i=0; i<narg; i++)
-    printf("%s ", argumentos[i]);
-  putchar('\n');
-
   strip_pos=0;
   for (i=0; i<narg; i++)
     {
@@ -399,7 +388,6 @@ int ejecuta_comando(char ** argumentos, int narg)
 
   if (strcmp(argumentos[narg-1],"&")==0)
     {
-      printf("bg!!!!\n");
       bg=1;
       free(argumentos[narg-1]);
       argumentos[narg-1]=NULL;
@@ -410,14 +398,21 @@ int ejecuta_comando(char ** argumentos, int narg)
   if (strcmp(argumentos[0],"logout")==0) return 1;
   if (strcmp(argumentos[0],"help")==0) {help(); return 0;}
 
-  if (strcmp(argumentos[0],"cd") == 0)
+  if (strcmp(argumentos[0], "cd") == 0)
     {
       cmd_cd(narg, argumentos);
       return 0;
     }
-  if (strcmp(argumentos[0],"jobs") == 0)
+
+  if (strcmp(argumentos[0], "jobs") == 0)
     {
       cmd_jobs(narg, argumentos);
+      return 0;
+    }
+
+  if (strcmp(argumentos[0], "fg") == 0)
+    {
+      cmd_fg(narg, argumentos);
       return 0;
     }
   
@@ -463,6 +458,10 @@ int ejecuta_comando(char ** argumentos, int narg)
     default:
       /**** Padre ****/
 
+      if (bg)
+	printf("Ejecutando [%d] %s (pid=%d) en segundo plano\n",
+	       list_length(&proc_list)+1, argumentos[0], pid);
+
       /* Salvar el modo actual del terminal. */
       tcgetattr(shell_term, &shell_tmode);
 
@@ -491,9 +490,6 @@ int ejecuta_comando(char ** argumentos, int narg)
 	  /* Salvar el modo del terminal empleado por el hijo. */
 	  tcgetattr(shell_term, &new_proc->term_mode);
 
-	  proc_info(new_proc, status);
-	  proc_update(new_proc, status);
-
 	  /* Recuperar el terminal. */
 	  if (tcsetpgrp(shell_term, shell_pid) == -1)
 	    {
@@ -503,14 +499,15 @@ int ejecuta_comando(char ** argumentos, int narg)
 
 	  /* Restaurar el modo del terminal para el shell. */
 	  tcsetattr(shell_term, TCSANOW, &shell_tmode);
+
+	  if (WIFSTOPPED(status))
+	    proc_info(new_proc, status);
+	  proc_update(new_proc, status);
 	}
 
     }
 
   sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
-
-  /* */
-  handler_sigchld();
 
   return 0;
 }
@@ -630,6 +627,76 @@ int cmd_cd(int argc, char *argv[])
   free(pwd);
 }
 
+/*-
+  *      Routine:      cmd_fg
+  *
+  *      Purpose:
+  *              Pone en primer plano un proceso que se encuentra
+  *              parado o en segundo plano.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void cmd_fg(int argc, char *argv[])
+{
+  int n;
+  node_t *p;
+
+  if (argc != 2 || !is_nat(argv[1]))
+    {
+      printf(" Sintaxis: fg numero_de_trabajo\n");
+      return;
+    }
+
+  sigprocmask(SIG_BLOCK, &block_sigchld, NULL);
+  p = list_elem(&proc_list, atoi(argv[1]) );
+  if (!p)
+    {
+      printf("ERROR: número de trabajo no válido\n");
+
+      sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
+      return;
+    }
+
+  /* Salvar el modo actual del terminal. */
+  tcgetattr(shell_term, &shell_tmode);
+
+  /* Restaurar el modo del terminal tal como lo dejó el hijo. */
+  tcsetattr(shell_term, TCSANOW, &p->term_mode);
+  /* Dar el terminal al hijo. */
+  tcsetpgrp(shell_term, p->pid);
+
+  p->fg = SET;
+  p->stopped = CLEAR;
+
+  printf("Pasando... [%d] %s (pid=%d) ... a primer plano\n",
+	 list_index(&proc_list, p), p->name, p->pid);
+
+  kill(p->pid, SIGCONT);
+
+  waitpid(p->pid, &p->status, WUNTRACED);
+
+  /* Salvar el modo del terminal empleado por el hijo. */
+  tcgetattr(shell_term, &p->term_mode);
+
+  /* Recuperar el terminal. */
+  if (tcsetpgrp(shell_term, shell_pid) == -1)
+    {
+      perror("tcsetpgrp");
+      exit(1);
+    }
+
+  /* Restaurar el modo del terminal para el shell. */
+  tcsetattr(shell_term, TCSANOW, &shell_tmode);
+
+  proc_info(p, p->status);
+  proc_update(p, p->status);
+
+  sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
+
+}
 
 
 /*
@@ -809,4 +876,60 @@ int list_length(list_t *lst)
     }
 
   return i;
+}
+
+/*-
+  *      Routine:      list_elem
+  *
+  *      Purpose:
+  *              Obtiene el trabajo que ocupa la posición 'pos'
+  *              en la lista de trabajos.
+  *      Conditions:
+  *              La lista debe ser válida.
+  *      Returns:
+  *              Un apuntador a la estructura-nodo.
+  *              NULL si no se encontró el trabajo.
+  *
+  */
+node_t * list_elem(list_t *lst, int pos)
+{
+  node_t *aux=lst->beg;
+
+  if (pos==0)
+    return NULL;
+
+  while (aux && --pos)
+    aux = aux->next;
+
+  return aux;
+}
+
+
+/*
+   Definición de funciones de apoyo.
+ */
+/*-
+  *      Routine:      is_nat
+  *
+  *      Purpose:
+  *              Decide si una cadena de caracteres representa
+  *              un número natural.
+  *      Conditions:
+  *              Se debe proporcionar un apuntador a una cadena
+  *              de caracteres válida
+  *      Returns:
+  *              1 <-> Sí
+  *              0 <-> No
+  *
+  */
+int is_nat(char *c)
+{
+  while (*c)
+    {
+      if (!isdigit(*c))
+	return 0;
+      c++;
+    }
+
+  return 1;
 }
