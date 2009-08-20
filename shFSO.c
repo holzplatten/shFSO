@@ -1,4 +1,4 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-20 19:58:59 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2009-08-20 20:52:21 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
@@ -29,6 +29,7 @@
 /*
    Definiciones de tipos.
  */
+
 typedef struct _node_t {
   int pid;
   char *name;
@@ -93,6 +94,7 @@ void proc_update(node_t *, int status);
 int cmd_cd(int argc, char *argv[]);
 void cmd_jobs(int argc, char *argv[]);
 void cmd_fg(int argc, char *argv[]);
+void cmd_bg(int argc, char *argv[]);
 
 int is_nat(char *);
 
@@ -415,6 +417,12 @@ int ejecuta_comando(char ** argumentos, int narg)
       cmd_fg(narg, argumentos);
       return 0;
     }
+
+  if (strcmp(argumentos[0], "bg") == 0)
+    {
+      cmd_bg(narg, argumentos);
+      return 0;
+    }
   
   /* Debido a que no podemos predecir el comportamiento del scheduler
      del SO en todo momento, tampoco podemos predecir que las rutinas
@@ -698,6 +706,54 @@ void cmd_fg(int argc, char *argv[])
 
 }
 
+/*-
+  *      Routine:      cmd_bg
+  *
+  *      Purpose:
+  *              Pone en ejecución en segundo plano un proceso
+  *              que se encuentra parado.
+  *      Conditions:
+  *              none
+  *      Returns:
+  *              none
+  *
+  */
+void cmd_bg(int argc, char *argv[])
+{
+  int n;
+  node_t *p;
+
+  if (argc != 2 || !is_nat(argv[1]))
+    {
+      printf(" Sintaxis: bg numero_de_trabajo\n");
+      return;
+    }
+
+  sigprocmask(SIG_BLOCK, &block_sigchld, NULL);
+  p = list_elem(&proc_list, atoi(argv[1]) );
+  if (!p)
+    {
+      printf("ERROR: número de trabajo no válido\n");
+
+      sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
+      return;
+    }
+
+  p->fg = CLEAR;
+  p->stopped = CLEAR;
+
+  printf("Pasando... [%d] %s (pid=%d) ... a segundo plano\n",
+	 list_index(&proc_list, p), p->name, p->pid);
+
+  kill(p->pid, SIGCONT);
+
+  /* Recuperar el control del terminal. */
+  tcsetattr(shell_term, TCSANOW, &shell_tmode);
+  tcsetpgrp(shell_term, shell_pid);
+
+  sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
+}
+
 
 /*
    Definición de funciones de manejo de listas.
@@ -908,6 +964,7 @@ node_t * list_elem(list_t *lst, int pos)
 /*
    Definición de funciones de apoyo.
  */
+
 /*-
   *      Routine:      is_nat
   *
