@@ -1,4 +1,4 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-20 12:57:46 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2009-08-20 18:08:22 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
@@ -58,7 +58,9 @@ void list_insert(list_t *, node_t *);
 int list_remove(list_t *, node_t *);
 int list_remove_pid(list_t * , int);
 void list_print();
-
+int list_index(list_t *, node_t *);
+node_t list_elem(list_t *, int);
+int list_length(list_t *);
 
 
 
@@ -89,6 +91,7 @@ void proc_info(node_t *, int status);
 void proc_update(node_t *, int status);
 
 int cmd_cd(int argc, char *argv[]);
+void cmd_jobs(int argc, char *argv[]);
 
 
 
@@ -107,7 +110,21 @@ int cmd_cd(int argc, char *argv[]);
   */
 void proc_info(node_t *p, int status)
 {
-  printf("------------ proc_info\n");
+  if (WIFSTOPPED(status))
+    {
+      printf(" [%d] %s (pid=%d) : PARADO\n",
+	     list_index(&proc_list, p), p->name, p->pid);
+    }
+  else if (WIFEXITED(status))
+    {
+      printf(" [%d] %s (pid=%d) : TERMINADO\n",
+	     list_index(&proc_list, p), p->name, p->pid);
+    }
+  else
+    {
+      printf(" [%d] %s (pid=%d) : EN EJECUCION\n",
+	     list_index(&proc_list, p), p->name, p->pid);
+    }
 }
 
 /*-
@@ -124,7 +141,19 @@ void proc_info(node_t *p, int status)
   */
 void proc_update(node_t *p, int status)
 {
-  printf("------------ proc_update\n");
+  if (WIFSTOPPED(status))
+    {
+      p->stopped = SET;
+    }
+  else if (WIFEXITED(status))
+    {
+      list_remove(&proc_list, p);
+    }
+  else
+    {
+      p->fg = CLEAR;
+      p->stopped = CLEAR;
+    }
 }
 
 /*-
@@ -181,12 +210,14 @@ void handler_sigint()
 void handler_sigchld()
 {
   int pid, status;
-  node_t *aux;
+  node_t *aux, *next;
 
+  sigprocmask(SIG_BLOCK, &block_sigchld, NULL);
   aux = proc_list.beg;
   while (aux)
     {
-      if (!aux->fg)
+      next = aux->next;
+      //      if (!aux->fg)
 	{
 	  pid = waitpid(aux->pid, &status, WUNTRACED|WNOHANG);
 	  if (pid == aux->pid)
@@ -195,7 +226,9 @@ void handler_sigchld()
 	      proc_update(aux, status);
 	    }
 	}
+      aux = next;
     }
+  sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
   
 }
 
@@ -333,31 +366,45 @@ int ejecuta_comando(char ** argumentos, int narg)
 {
   int i, pid;
   int status;
-  int separador;
+  int strip_pos, bg=0;
+  node_t *new_proc;
   
   /* si esta vacio */
   if (narg==0) return 0;
 
-  separador=0;
+  for (i=0; i<narg; i++)
+    printf("%s ", argumentos[i]);
+  putchar('\n');
+
+  strip_pos=0;
   for (i=0; i<narg; i++)
     {
       if (!strcmp(argumentos[i], ";"))
 	{
-	  separador = i;
+	  strip_pos = i;
 	  break;
 	}
     }
 
   /* Caso genérico: secuencia de comandos de al menos dos comandos. */
-  if (separador)
+  if (strip_pos)
     {
-      free(argumentos[separador]);
-      argumentos[separador] = NULL;
-      ejecuta_comando(argumentos, separador++);
-      return ejecuta_comando(&argumentos[separador], narg-separador);
+      free(argumentos[strip_pos]);
+      argumentos[strip_pos] = NULL;
+      ejecuta_comando(argumentos, strip_pos++); printf("??? otro comando\n");
+      return ejecuta_comando(&argumentos[strip_pos], narg-strip_pos);
     }
 
   /* Caso base: un sólo comando. */
+
+  if (strcmp(argumentos[narg-1],"&")==0)
+    {
+      printf("bg!!!!\n");
+      bg=1;
+      free(argumentos[narg-1]);
+      argumentos[narg-1]=NULL;
+      narg--;
+    }
 
   /* comandos internos */
   if (strcmp(argumentos[0],"logout")==0) return 1;
@@ -368,16 +415,103 @@ int ejecuta_comando(char ** argumentos, int narg)
       cmd_cd(narg, argumentos);
       return 0;
     }
-  
-  /* ejecuta comando externo */
-  if ((pid=fork())==0) /* lanza la ejecucion de un proceso hijo */
-    { /* hijo */
-      execvp(argumentos[0],argumentos);
-      printf("Error, no se puede ejecutar: %s\n",argumentos[0]);
-      exit(-1); 
+  if (strcmp(argumentos[0],"jobs") == 0)
+    {
+      cmd_jobs(narg, argumentos);
+      return 0;
     }
-  /* padre espera a la conclusion del comando - proceso hijo */
-  waitpid(pid,&status,0);
+  
+  /* Debido a que no podemos predecir el comportamiento del scheduler
+     del SO en todo momento, tampoco podemos predecir que las rutinas
+     siguientes se ejecuten antes que el proceso hijo resultante del
+     fork. Por ello es conveniente bloquear la señal SIGCHLD antes de
+     "forkear", y de paso ahorrarme otro quebradero de cabeza más. :)
+  */
+  sigprocmask(SIG_BLOCK, &block_sigchld, NULL);
+
+  pid=fork();
+  switch(pid)
+    {
+    case -1:
+      /* Error en la llamada a fork!
+	 Problema grave: terminar devolviendo un valor no-cero.
+      */
+      perror("fork");
+      exit(1);
+      break;
+
+    case 0:
+      /**** Hijo ****/
+      pid = getpid();
+      setpgid(pid, pid);
+
+      if (!bg)
+	tcsetpgrp(shell_term, pid);
+
+      set_signals(SIG_DFL);
+
+      execvp(argumentos[0], argumentos);
+
+      /* Este código no se debería ejecutar nunca a menos que falle
+	 la llamada a execvp, lo cual consideramos un error
+	 irrecuperable: terminar devolviendo un valor no-cero. 
+      */
+      perror("execvp");
+      exit(1);
+      break;
+
+    default:
+      /**** Padre ****/
+
+      /* Salvar el modo actual del terminal. */
+      tcgetattr(shell_term, &shell_tmode);
+
+      new_proc = malloc(sizeof(node_t));
+
+      new_proc->pid = pid;
+      new_proc->name = strdup(argumentos[0]);
+      new_proc->term_mode = shell_tmode;
+      new_proc->fg = !bg;
+      new_proc->stopped = CLEAR;
+
+      list_insert(&proc_list, new_proc);
+
+      /* Cada proceso en su propio grupo. */
+      setpgid(pid,pid);
+
+      if (!bg)
+	{
+	  /* Dar el terminal al hijo. */
+	  tcsetpgrp(shell_term, pid);
+
+	  waitpid(pid, &status, WUNTRACED);
+
+	  new_proc->status = status;
+
+	  /* Salvar el modo del terminal empleado por el hijo. */
+	  tcgetattr(shell_term, &new_proc->term_mode);
+
+	  proc_info(new_proc, status);
+	  proc_update(new_proc, status);
+
+	  /* Recuperar el terminal. */
+	  if (tcsetpgrp(shell_term, shell_pid) == -1)
+	    {
+	      perror("tcsetpgrp");
+	      exit(1);
+	    }
+
+	  /* Restaurar el modo del terminal para el shell. */
+	  tcsetattr(shell_term, TCSANOW, &shell_tmode);
+	}
+
+    }
+
+  sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
+
+  /* */
+  handler_sigchld();
+
   return 0;
 }
 
@@ -411,6 +545,48 @@ main()
   exit(0);
 } 
 
+/*-
+  *      Routine:      cmd_jobs
+  *
+  *      Purpose:
+  *              Implementación del comando interno 'jobs'.
+  *              Muestra en pantalla el estado de la lista de trabajos.
+  *      Conditions:
+  *              La lista de trabajos debe ser válida.
+  *      Returns:
+  *              none
+  *
+  */
+void cmd_jobs(int argc, char *argv[])
+{
+  int i, lng;
+  node_t *p;
+
+  if (argc != 1)
+    {
+      printf("ERROR: Parámetro no válido\n");
+      printf(" Sintaxis: jobs\n");
+      return;
+    }
+
+  lng = list_length(&proc_list);
+  if (lng == 0)
+    {
+      printf(" La lista de trabajos está vacía.\n");
+    }
+  else
+    {
+      for (i=1, p=proc_list.beg;
+	   i<=lng;
+	   i++, p=p->next)
+	{
+	  printf(" [%d] %s (pid=%d) : %s\n",
+		 i, p->name, p->pid, p->stopped ? "PARADO" : "EN EJECUCIÓN");
+
+	}
+    }
+    
+}
 /*-
   *      Routine:      cmd_cd
   *
@@ -579,4 +755,58 @@ int list_remove_pid(list_t * lst, int pid)
   free(aux);
 
   return 0;
+}
+
+/*-
+  *      Routine:      list_index
+  *
+  *      Purpose:
+  *              Obtiene la posición en la lista del proceso dado.
+  *      Conditions:
+  *              La lista debe estar inicializada.
+  *      Returns:
+  *              Un entero con la posición del proceso o 0 si
+  *              éste no se encontró.
+  *
+  */
+int list_index(list_t *lst, node_t *p)
+{
+  int i=1;
+  node_t *aux=lst->beg;
+
+  while (aux && aux!=p)
+    {
+      i++;
+      aux = aux->next;
+    }
+
+  if (aux==NULL)
+    return 1;
+
+  return i;
+}
+
+/*-
+  *      Routine:      list_length
+  *
+  *      Purpose:
+  *              Calcula la longitud de una lista.
+  *      Conditions:
+  *              La lista debe ser válida.
+  *      Returns:
+  *              Un entero.
+  *
+  */
+int list_length(list_t *lst)
+{
+  int i=0;
+  node_t *aux=lst->beg;
+
+  while (aux!=NULL)
+    {
+      i++;
+      aux=aux->next;
+    }
+
+  return i;
 }
