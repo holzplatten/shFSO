@@ -382,7 +382,7 @@ int ejecuta_comando(char ** argumentos, int narg)
     {
       free(argumentos[strip_pos]);
       argumentos[strip_pos] = NULL;
-      ejecuta_comando(argumentos, strip_pos++); printf("??? otro comando\n");
+      ejecuta_comando(argumentos, strip_pos++);
       return ejecuta_comando(&argumentos[strip_pos], narg-strip_pos);
     }
 
