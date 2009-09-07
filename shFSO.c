@@ -467,7 +467,7 @@ int ejecuta_comando(char ** argumentos, int narg)
       /**** Padre ****/
 
       if (bg)
-	printf("Ejecutando [%d] %s (pid=%d) en segundo plano\n",
+	printf("Ejecutando... [%d] %s (pid=%d) ... en segundo plano\n",
 	       list_length(&proc_list)+1, argumentos[0], pid);
 
       /* Salvar el modo actual del terminal. */
@@ -735,6 +735,13 @@ void cmd_bg(int argc, char *argv[])
     {
       printf("ERROR: número de trabajo no válido\n");
 
+      sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
+      return;
+    }
+
+  if (!p->stopped)
+    {
+      printf("ERROR: El trabajo ya se encuentra en segundo plano\n");
       sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
       return;
     }
