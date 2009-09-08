@@ -286,7 +286,7 @@ void show_prompt()
 int help()
 {
   printf("   ---------------------\n");
-  printf("   Shell basico FSO 2007\n");
+  printf("   Shell para FSO 2009: hsh\n");
   printf("   ---------------------\n");
   printf("   help                   esta ayuda\n");
   printf("   logout                 salir \n");
@@ -753,10 +753,6 @@ void cmd_bg(int argc, char *argv[])
 	 list_index(&proc_list, p), p->name, p->pid);
 
   kill(p->pid, SIGCONT);
-
-  /* Recuperar el control del terminal. */
-  tcsetattr(shell_term, TCSANOW, &shell_tmode);
-  tcsetpgrp(shell_term, shell_pid);
 
   sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
 }
