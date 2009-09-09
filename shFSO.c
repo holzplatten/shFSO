@@ -120,7 +120,7 @@ void proc_info(node_t *p, int status)
       printf(" [%d] %s (pid=%d) : PARADO\n",
 	     list_index(&proc_list, p), p->name, p->pid);
     }
-  else //if (WIFEXITED(status))
+  else
     {
       printf(" [%d] %s (pid=%d) : TERMINADO\n",
 	     list_index(&proc_list, p), p->name, p->pid);
@@ -145,7 +145,7 @@ void proc_update(node_t *p, int status)
     {
       p->stopped = SET;
     }
-  else //if (WIFEXITED(status))
+  else
     {
       list_remove(&proc_list, p);
     }
@@ -212,15 +212,14 @@ void handler_sigchld()
   while (aux)
     {
       next = aux->next;
-      //      if (!aux->fg)
+
+      pid = waitpid(aux->pid, &status, WUNTRACED|WNOHANG);
+      if (pid == aux->pid)
 	{
-	  pid = waitpid(aux->pid, &status, WUNTRACED|WNOHANG);
-	  if (pid == aux->pid)
-	    {
-	      proc_info(aux, status);
-	      proc_update(aux, status);
-	    }
+	  proc_info(aux, status);
+	  proc_update(aux, status);
 	}
+
       aux = next;
     }
   sigprocmask(SIG_UNBLOCK, &block_sigchld, NULL);
