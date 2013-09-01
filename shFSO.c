@@ -1,4 +1,4 @@
-/* -*- mode: C -*- Time-stamp: "2009-08-20 20:52:21 holzplatten"
+/* -*- mode: C -*- Time-stamp: "2013-09-01 15:12:24 holzplatten"
    *
    *       File:         shFSO.c
    *       Author:       Pedro J. Ruiz Lopez (holzplatten@es.gnu.org)
@@ -7,6 +7,23 @@
    *       Shell para la asignatura Fundamentos de Sistemas Operativos.
    *
    */
+
+/*
+  Copyright (C) 2009, 2013 Pedro J. Ruiz López <holzplatten@es.gnu.org>
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+  
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
